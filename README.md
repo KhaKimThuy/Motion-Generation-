@@ -43,6 +43,11 @@ bash prepare/download_t2m_evaluators.sh
 ```shell
 python -m train.train_mdm --save_dir save/my_kit_trans_enc_512 --dataset kit
 ```
+## Train your own SinMDM
+
+```shell
+python -m train.train_mdm --arch unet --save_dir save/my_kit_unet_512 --dataset kit
+```
 
 ## Evaluate
 
