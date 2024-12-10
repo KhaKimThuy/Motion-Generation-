@@ -1,7 +1,8 @@
+# %%writefile /kaggle/working/motion-diffusion-model/model/mdm_unet.py
 from abc import abstractmethod
-
+from model.rotation2xyz import Rotation2xyz
 import math
-
+import clip
 import numpy as np
 import torch
 import torch as th
@@ -18,7 +19,7 @@ from diffusion.nn import (
     normalization,
     timestep_embedding,
 )
-from models.qna import FusedQnA1d
+from model.qna import FusedQnA1d
 
 
 class TimestepBlock(nn.Module):
@@ -435,6 +436,8 @@ class MDM_UNetModel(nn.Module):
         use_attention=False,
         use_qna=True,
         kernel_size=3,
+        clip_dim=512,
+        clip_version=None
     ):
         super().__init__()
 
@@ -461,6 +464,7 @@ class MDM_UNetModel(nn.Module):
         self.dims = dims
         self.padding_mode = padding_mode
         self.padding = padding
+        self.clip_dim = clip_dim
 
         for k, v in motion_args.items():
             setattr(self, k, v)
@@ -603,6 +607,58 @@ class MDM_UNetModel(nn.Module):
             zero_module(conv_nd(dims, input_ch, out_channels, 3, padding=padding, padding_mode=padding_mode)),
         )
 
+
+        self.embed_text = nn.Linear(self.clip_dim, time_embed_dim)
+        print('EMBED TEXT')
+        print('Loading CLIP...')
+        self.clip_version = clip_version
+        self.clip_model = self.load_and_freeze_clip(clip_version)
+
+        self.rot2xyz = Rotation2xyz(device='cpu', dataset=self.dataset)
+
+    def parameters_wo_clip(self):
+        return [p for name, p in self.named_parameters() if not name.startswith('clip_model.')]
+
+    def load_and_freeze_clip(self, clip_version):
+        clip_model, clip_preprocess = clip.load(clip_version, device='cpu',
+                                                jit=False)  # Must set jit=False for training
+        clip.model.convert_weights(
+            clip_model)  # Actually this line is unnecessary since clip by default already on float16
+
+        # Freeze CLIP weights
+        clip_model.eval()
+        for p in clip_model.parameters():
+            p.requires_grad = False
+
+        return clip_model
+
+    def mask_cond(self, cond, force_mask=False):
+        bs, d = cond.shape
+        if force_mask:
+            return torch.zeros_like(cond)
+        elif self.training and self.cond_mask_prob > 0.:
+            mask = torch.bernoulli(torch.ones(bs, device=cond.device) * self.cond_mask_prob).view(bs, 1)  # 1-> use null_cond, 0-> use real cond
+            return cond * (1. - mask)
+        else:
+            return cond
+
+    def encode_text(self, raw_text):
+        # raw_text - list (batch_size length) of strings with input text prompts
+        device = next(self.parameters()).device
+        max_text_len = 20 if self.dataset in ['humanml', 'kit'] else None  # Specific hardcoding for humanml dataset
+        if max_text_len is not None:
+            default_context_length = 77
+            context_length = max_text_len + 2 # start_token + 20 + end_token
+            assert context_length < default_context_length
+            texts = clip.tokenize(raw_text, context_length=context_length, truncate=True).to(device) # [bs, context_length] # if n_tokens > context_length -> will truncate
+            # print('texts', texts.shape)
+            zero_pad = torch.zeros([texts.shape[0], default_context_length-context_length], dtype=texts.dtype, device=texts.device)
+            texts = torch.cat([texts, zero_pad], dim=1)
+            # print('texts after pad', texts.shape, texts)
+        else:
+            texts = clip.tokenize(raw_text, truncate=True).to(device) # [bs, context_length] # if n_tokens > 77 -> will truncate
+        return self.clip_model.encode_text(texts).float()
+
     def convert_to_fp16(self):
         """
         Convert the torso of the model to float16.
@@ -617,14 +673,9 @@ class MDM_UNetModel(nn.Module):
         self.input_blocks.apply(convert_module_to_f32)
         self.output_blocks.apply(convert_module_to_f32)
 
-    def mask_cond(self, cond):
-        bs, d = cond.shape
-        if self.training and self.motion_args['cond_mask_prob'] > 0.:
-            mask = th.bernoulli(th.ones(bs, device=cond.device) * self.motion_args['cond_mask_prob']).view(bs, 1)  # 1-> use null_cond, 0-> use real cond
-            return cond * (1. - mask)
-        else:
-            return cond
 
+
+    
     def forward(self, x, timesteps, y=None):
         """
         Apply the model to an input batch.
@@ -637,22 +688,27 @@ class MDM_UNetModel(nn.Module):
 
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+        force_mask = y.get('uncond', False)
         if 'text' in self.motion_args['cond_mode']:
-            emb += self.embed_text(self.mask_cond(y['text']))
-
-        if self.motion_args['dataset'] == 'humanml':
-            if self.dims == 1:
-                self.n_samples, self.n_joints, self.n_feats, self.n_frames = x.shape
-                x = x.reshape(self.n_samples, -1, self.n_frames)
-        elif self.motion_args['dataset'] in ['mixamo', 'bvh_general']:
-            self.n_samples, self.n_joints, self.n_feats, self.n_frames = x.shape
-            if self.dims == 1:
-                x = x.reshape(self.n_samples, -1, self.n_frames)
+            if 'text_embed' in y.keys():  # caching option
+                enc_text = y['text_embed']
             else:
-                x = x.reshape(self.n_samples, -1, 1, self.n_frames)
-            assert x.shape[1] == self.n_joints * self.n_feats
-        else:
-            raise 'dataset not supported yet.'
+                enc_text = self.encode_text(y['text'])
+            emb += self.embed_text(self.mask_cond(enc_text, force_mask=force_mask))
+
+        # if self.motion_args['dataset'] in ['humanml', "kit"]:
+        if self.dims == 1:
+            self.n_samples, self.n_joints, self.n_feats, self.n_frames = x.shape
+            x = x.reshape(self.n_samples, -1, self.n_frames)
+        # elif self.motion_args['dataset'] in ['mixamo', 'bvh_general']:
+        #     self.n_samples, self.n_joints, self.n_feats, self.n_frames = x.shape
+        #     if self.dims == 1:
+        #         x = x.reshape(self.n_samples, -1, self.n_frames)
+        #     else:
+        #         x = x.reshape(self.n_samples, -1, 1, self.n_frames)
+        #     assert x.shape[1] == self.n_joints * self.n_feats
+        # else:
+        #     raise 'dataset not supported yet.'
 
         if self.dims == 1:
             self.resid_frames = ((self.sub_sample_mult - x.shape[2:] % self.sub_sample_mult) % self.sub_sample_mult)[0]
@@ -701,13 +757,13 @@ class MDM_UNetModel(nn.Module):
         if self.resid_joints > 0:
             _out = _out[:, :, :-self.resid_joints, :]
 
-        if self.motion_args['dataset'] == 'humanml':
-            if self.dims == 1:
-                _out = _out.reshape(self.n_samples, self.n_joints, self.n_feats, self.n_frames)
-        elif self.motion_args['dataset'] in ['mixamo', 'bvh_general']:
+        # if self.motion_args['dataset'] == 'humanml':
+        if self.dims == 1:
             _out = _out.reshape(self.n_samples, self.n_joints, self.n_feats, self.n_frames)
-        else:
-            raise 'dataset not supported yet.'
+        # elif self.motion_args['dataset'] in ['mixamo', 'bvh_general']:
+        #     _out = _out.reshape(self.n_samples, self.n_joints, self.n_feats, self.n_frames)
+        # else:
+        #     raise 'dataset not supported yet.'
         return _out
 
 

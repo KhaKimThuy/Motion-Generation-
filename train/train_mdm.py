@@ -1,3 +1,4 @@
+# %%writefile /kaggle/working/motion-diffusion-model/train/train_mdm.py
 # This code is based on https://github.com/openai/guided-diffusion
 """
 Train a diffusion model on images.
