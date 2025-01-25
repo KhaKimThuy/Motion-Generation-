@@ -49,6 +49,11 @@ python -m train.train_mdm --save_dir save/mdm_output --dataset kit
 ```shell
 python -m train.train_mdm --arch me --save_dir save/lgtt_output --dataset kit
 ```
+## Train your own SinMDM
+
+```shell
+python -m train.train_mdm --arch unet --save_dir save/my_kit_unet_512 --dataset kit
+```
 
 ## Evaluate
 
