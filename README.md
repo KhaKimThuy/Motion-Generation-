@@ -41,7 +41,13 @@ bash prepare/download_t2m_evaluators.sh
 ## Train your own MDM
 
 ```shell
-python -m train.train_mdm --save_dir save/my_kit_trans_enc_512 --dataset kit
+python -m train.train_mdm --save_dir save/mdm_output --dataset kit
+```
+
+## Train your own LGTT
+
+```shell
+python -m train.train_mdm --arch me --save_dir save/lgtt_output --dataset kit
 ```
 
 ## Evaluate
