@@ -1,6 +1,23 @@
 # Motion Diffusion Model
 
-## Getting started
+
+## Quick Demos
+<table class="center">
+    <tr>
+    <td><img src="assets/Picture1.gif"></td>
+    <td><img src="assets/Picture2.gif"></td>
+    <td><img src="assets/Picture3.gif"></td>
+    </tr>
+</table>
+<table class="center">
+    <tr>
+    <td><img src="assets/Picture4.gif"></td>
+    <td><img src="assets/Picture5.gif"></td>
+    <td><img src="assets/Picture6.gif"></td>
+    </tr>
+</table>
+
+## Quick Start
 
 This code was tested on `Ubuntu 18.04.5 LTS` and requires:
 
@@ -8,7 +25,7 @@ This code was tested on `Ubuntu 18.04.5 LTS` and requires:
 * conda3 or miniconda3
 * CUDA capable GPU (one is enough)
 
-### 1. Setup environment
+### 1. Setup environment 
 
 Install ffmpeg (if not already installed):
 
