@@ -9,7 +9,7 @@
 | ------------ | :-----------:        | :-----------:        | :-----------:         | :-----------:          | :-----------:          | :-----------:          |
 |              |      Top 1           |     Top 2            |      Top 3            |                        |                        |                        |
 |MDM           | $$0.3420^{\pm0066}$$ | $$0.5506^{\pm0055}$$ | $$0.6806^{\pm0038}$$  |  $$10.8756^{\pm0950}$$  |  $$1.5703^{\pm0658}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1SHCRcE0es31vkJMLGf9dyLe7YsWj7pNL/view)  |
-|*Ours          | $$0.3465^{\pm0059}$$ | $$0.5568^{\pm0072}$$ | $$0.6910^{\pm0067}$$  |  $$11.3812^{\pm1153}$$  |  $$0.9819^{\pm0406}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1SHCRcE0es31vkJMLGf9dyLe7YsWj7pNL/view)  |
+|*Ours          | $$0.3465^{\pm0059}$$ | $$0.5568^{\pm0072}$$ | $$0.6910^{\pm0067}$$  |  $$11.3812^{\pm1153}$$  |  $$0.9819^{\pm0406}$$  |  [🚀 Checkpoint](https://drive.google.com/drive/folders/1d1kc85btNoudJd0fuF-aWp-7kyqJEOxi?usp=sharing)  |
 
 </div>
 
@@ -54,7 +54,6 @@ Install ffmpeg (if not already installed):
 sudo apt update
 sudo apt install ffmpeg
 ```
-For windows use [this](https://www.geeksforgeeks.org/how-to-install-ffmpeg-on-windows/) instead.
 
 Setup conda env:
 ```shell
@@ -74,7 +73,15 @@ bash prepare/download_t2m_evaluators.sh
 
 ### 2. Get data
 
-**KIT** - Download from [HumanML3D](https://github.com/EricGuo5513/HumanML3D.git) (no processing needed this time) and the place result in `./dataset/KIT-ML`
+KIT
+```bash
+bash prepare/download_kit_dataset.sh
+```
+HumanML3D
+```bash
+bash prepare/download_humanml3d_dataset.sh
+```
+</details>
 
 ### 3. Train model
 <details>
@@ -111,3 +118,10 @@ python -m sample.generate --model_path ./save/humanml_trans_enc_512/model0002000
 ```shell
 python -m eval.eval_humanml --model_path ./save/kit_trans_enc_512/model000400000.pt
 ```
+
+## Acknowledgments
+
+This code is standing on the shoulders of giants. We want to thank the following contributors
+that our code is based on:
+
+[motion-diffusion-model](https://github.com/GuyTevet/motion-diffusion-model), [guided-diffusion](https://github.com/openai/guided-diffusion), [MotionCLIP](https://github.com/GuyTevet/MotionCLIP), [text-to-motion](https://github.com/EricGuo5513/text-to-motion), [actor](https://github.com/Mathux/ACTOR), [joints2smpl](https://github.com/wangsen1312/joints2smpl), [MoDi](https://github.com/sigal-raab/MoDi).

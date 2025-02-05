@@ -1,9 +1,423 @@
-import numpy as np
+# %%writefile /kaggle/working/motion-diffusion-model/model/mdm.py
+import math
 import torch
 import torch.nn as nn
+import numpy as np
 import torch.nn.functional as F
 import clip
 from model.rotation2xyz import Rotation2xyz
+
+from diffusion.nn import (
+    checkpoint,
+    conv_nd
+)
+from model.qna import FusedQnA1d
+class AttentionBlock(nn.Module):
+    """
+    An attention block that allows spatial positions to attend to each other.
+
+    Originally ported from here, but adapted to the N-d case.
+    https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/models/unet.py#L66.
+    """
+
+    def __init__(
+            self,
+            channels,
+            num_heads=1,
+            num_head_channels=-1,
+            use_checkpoint=False,
+            use_new_attention_order=False,
+            use_qna=False,
+            kernel_size=3,
+    ):
+        super().__init__()
+        self.channels = channels
+        self.use_qna = use_qna
+        if num_head_channels == -1:
+            self.num_heads = num_heads
+        else:
+            assert (
+                    channels % num_head_channels == 0
+            ), f"q,k,v channels {channels} is not divisible by num_head_channels {num_head_channels}"
+            self.num_heads = channels // num_head_channels
+        self.use_checkpoint = use_checkpoint
+        if not use_qna:
+            self.qkv = conv_nd(1, channels, channels * 3, 1)
+        self.attention = FusedQnA1d(
+            in_features=self.channels,
+            timesteps_features=None,
+            hidden_features=self.channels,
+            heads=self.num_heads,
+            kernel_size=kernel_size,
+            stride=1,
+            padding=(kernel_size - 1) // 2,
+        )
+
+    def forward(self, x):
+        return checkpoint(self._forward, (x,), self.parameters(), self.use_checkpoint)
+
+    def _forward(self, x):
+        b, c, *spatial = x.shape
+        x = x.reshape(b, c, -1)
+
+        h = x.reshape(b, c, 1, -1)
+        h = self.attention(h)
+        h = h.reshape(b, c, -1)
+        return h.reshape(b, c, *spatial)
+
+def count_flops_attn(model, _x, y):
+    """
+    A counter for the `thop` package to count the operations in an
+    attention operation.
+    Meant to be used like:
+        macs, params = thop.profile(
+            model,
+            inputs=(inputs, timestamps),
+            custom_ops={QKVAttention: QKVAttention.count_flops},
+        )
+    """
+    b, c, *spatial = y[0].shape
+    num_spatial = int(np.prod(spatial))
+    # We perform two matmuls with the same number of ops.
+    # The first computes the weight matrix, the second computes
+    # the combination of the value vectors.
+    matmul_ops = 2 * b * (num_spatial ** 2) * c
+    model.total_ops += th.DoubleTensor([matmul_ops])
+
+
+class QKVAttentionLegacy(nn.Module):
+    """
+    A module which performs QKV attention. Matches legacy QKVAttention + input/ouput heads shaping
+    """
+
+    def __init__(self, n_heads):
+        super().__init__()
+        self.n_heads = n_heads
+
+    def forward(self, qkv):
+        """
+        Apply QKV attention.
+
+        :param qkv: an [N x (H * 3 * C) x T] tensor of Qs, Ks, and Vs.
+        :return: an [N x (H * C) x T] tensor after attention.
+        """
+        bs, width, length = qkv.shape
+        assert width % (3 * self.n_heads) == 0
+        ch = width // (3 * self.n_heads)
+        q, k, v = qkv.reshape(bs * self.n_heads, ch * 3, length).split(ch, dim=1)
+        scale = 1 / math.sqrt(math.sqrt(ch))
+        weight = th.einsum(
+            "bct,bcs->bts", q * scale, k * scale
+        )  # More stable with f16 than dividing afterwards
+        weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
+        a = th.einsum("bts,bcs->bct", weight, v)
+        return a.reshape(bs, -1, length)
+
+
+class QKVAttention(nn.Module):
+    """
+    A module which performs QKV attention and splits in a different order.
+    """
+
+    def __init__(self, n_heads):
+        super().__init__()
+        self.n_heads = n_heads
+
+    def forward(self, qkv):
+        """
+        Apply QKV attention.
+
+        :param qkv: an [N x (3 * H * C) x T] tensor of Qs, Ks, and Vs.
+        :return: an [N x (H * C) x T] tensor after attention.
+        """
+        bs, width, length = qkv.shape
+        assert width % (3 * self.n_heads) == 0
+        ch = width // (3 * self.n_heads)
+        q, k, v = qkv.chunk(3, dim=1)
+        scale = 1 / math.sqrt(math.sqrt(ch))
+        weight = th.einsum(
+            "bct,bcs->bts",
+            (q * scale).view(bs * self.n_heads, ch, length),
+            (k * scale).view(bs * self.n_heads, ch, length),
+        )  # More stable with f16 than dividing afterwards
+        weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
+        a = th.einsum("bts,bcs->bct", weight, v.reshape(bs * self.n_heads, ch, length))
+        return a.reshape(bs, -1, length)
+
+# Custom Multi-Head Attention
+class OrinMultiHeadAttention(nn.Module):
+    def __init__(self, d_model, num_heads, dropout=0.1):
+        super().__init__()
+        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.scale = math.sqrt(self.head_dim)
+
+        # Linear layers for query, key, and value
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, query, key, value, mask=None):
+        B, T, D = query.size()
+        H = self.num_heads
+
+        # Linear projections and split into heads
+        Q = self.q_proj(query).view(B, T, H, -1).transpose(1, 2)  # (B, H, T, head_dim)
+        K = self.k_proj(key).view(B, T, H, -1).transpose(1, 2)
+        V = self.v_proj(value).view(B, T, H, -1).transpose(1, 2)
+
+        # Scaled dot-product attention
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / self.scale  # (B, H, T, T)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, float('-inf'))
+        attn = torch.softmax(scores, dim=-1)
+        attn = self.dropout(attn)
+
+        # Weighted sum of values
+        context = torch.matmul(attn, V)  # (B, H, T, head_dim)
+        context = context.transpose(1, 2).contiguous().view(B, T, D)  # (B, T, D)
+
+        # Final projection
+        output = self.out_proj(context)
+        return output
+
+class EfTemporalAttention(nn.Module):
+    def __init__(self, d_model=64, num_heads=4, dropout=0.0):
+        super().__init__()
+        self.num_heads = num_heads
+        self.norm = nn.LayerNorm(d_model)
+        self.query = nn.Linear(d_model, d_model)
+        self.key = nn.Linear(d_model, d_model)
+        self.value = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.proj_out = nn.Linear(d_model, d_model)
+
+    def forward(self, q, k, v, mask=None):
+        """
+        x:  T, B, D
+        """
+        q = q.permute(1,0,2)
+        k = k.permute(1,0,2)
+        v = v.permute(1,0,2)
+
+
+        B, T, D = q.shape
+        H = self.num_heads
+        # B, T, D
+        query = self.query(self.norm(q))
+        # B, T, D
+        # key = (self.key(self.norm(x)) + (1 - src_mask) * -1000000)
+        key = self.key(self.norm(k))
+        query = F.softmax(query.view(B, T, H, -1), dim=-1)
+        key = F.softmax(key.view(B, T, H, -1), dim=1)
+        # B, T, H, HD
+        # value = (self.value(self.norm(x)) * src_mask).view(B, T, H, -1)
+        value = (self.value(self.norm(v))).view(B, T, H, -1)
+        # B, H, HD, HD
+        attention = torch.einsum('bnhd,bnhl->bhdl', key, value)
+        y = torch.einsum('bnhd,bhdl->bnhl', query, attention).reshape(B, T, D)
+        y = self.proj_out(y) # b, t, d
+        return y.permute(1,0,2)
+
+class SpatialMultiHeadAttention(nn.Module):
+    def __init__(self, d_model, num_heads, dropout=0.1):
+        """
+        :param size: Kích thước (dimension) của các vector truy vấn (query), key và value
+        """
+        super().__init__()
+
+        assert d_model % num_heads == 0
+
+        print(f"Dropout in TEMP : {dropout}")
+
+        self.head_size = head_size = d_model // num_heads
+        self.model_size = d_model
+        self.num_heads = num_heads
+
+        self.q_layer = nn.Linear(d_model, num_heads * head_size)
+        self.k_layer = nn.Linear(d_model, num_heads * head_size)
+        self.v_layer = nn.Linear(d_model, num_heads * head_size)
+
+        # self.kv_layer = AttentionBlock(
+        #                         d_model,
+        #                         use_checkpoint=False,
+        #                         num_heads=num_heads,
+        #                         num_head_channels=-1,
+        #                         use_new_attention_order=False,
+        #                         use_qna=True,
+        #                         kernel_size=3,
+        #                 )
+
+        self.kv_layer = nn.Conv1d(d_model, num_heads * head_size, kernel_size=3, stride=1)
+
+        self.softmax = nn.Softmax(dim=-1)
+        self.dropout = nn.Dropout(dropout)
+
+        self.output_layer =  nn.Linear(d_model, d_model)
+
+
+    def forward(self, q, k, v, mask=None, key_padding_mask=None):
+
+        batch_size, t, d = q.shape
+        num_heads = self.num_heads
+
+        q = self.q_layer(q)
+        kv = self.kv_layer(k.permute(0,2,1)).permute(0,2,1)
+        # k, v = torch.chunk(kv, 2, dim=-1)
+        k = self.k_layer(kv)
+        v = self.v_layer(kv)
+        # k = self.k_layer(k.permute(0,2,1)).permute(0,2,1)
+        # v = self.v_layer(v.permute(0,2,1)).permute(0,2,1)
+
+        k = k.view(batch_size, -1, num_heads, self.head_size).transpose(1, 2)
+        v = v.view(batch_size, -1, num_heads, self.head_size).transpose(1, 2)
+        q = q.view(batch_size, -1, num_heads, self.head_size).transpose(1, 2)
+
+        # compute scores
+        q = q / math.sqrt(self.head_size)
+
+        scores = torch.matmul(q, k.transpose(2, 3))
+
+        # apply the mask (if we have one)
+        if mask is not None:
+                scores = scores.masked_fill(mask == 0, float('-inf'))
+
+        # apply attention dropout and compute context vectors.
+        attention = self.softmax(scores)
+        attention = self.dropout(attention)
+
+        context = torch.matmul(attention, v)
+        context = context.transpose(1, 2).contiguous().view(
+            batch_size, -1, num_heads * self.head_size)
+
+        context = self.output_layer(context)
+
+        # return context.permute(1,0,2), attention
+        return context, attention
+
+# Transformer Encoder Layer
+class CustomTransformerEncoderLayer(nn.Module):
+    def __init__(self, d_model, num_heads, dim_feedforward, dropout, activation='relu'):
+        super(CustomTransformerEncoderLayer, self).__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.dim_feedforward = dim_feedforward
+        self.dropout = dropout
+        self.activation = activation
+
+        # Multi-Head Attention
+        self.temp_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout, batch_first=True)
+        # self.self_attn = EfTemporalAttention(d_model=d_model, num_heads=num_heads, dropout=dropout)
+        # self.temp_attn = TemporalMultiHeadAttention(d_model=d_model, num_heads=num_heads, dropout=dropout)
+        self.spat_attn = SpatialMultiHeadAttention(d_model=d_model, num_heads=num_heads, dropout=dropout)
+
+        # Feedforward Network
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, dim_feedforward),
+            nn.ReLU() if activation == 'relu' else nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_feedforward, d_model),
+            nn.Dropout(dropout),
+        )
+
+        # Layer Normalization
+        self.norm0 = nn.LayerNorm(d_model)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, src, src_mask=None, src_key_padding_mask=None):
+        """
+        Forward pass through a custom Transformer Encoder Layer.
+
+        Args:
+            src (Tensor): Input tensor of shape (sequence_length, batch_size, d_model).
+            src_mask (Tensor, optional): Mask for the source sequence (optional).
+            src_key_padding_mask (Tensor, optional): Mask for padding in the batch (optional).
+
+        Returns:
+            Tensor: Output tensor of shape (sequence_length, batch_size, d_model).
+        """
+        src_norm = self.norm0(src)
+        
+        # Self-attention with residual connection and normalization
+        attn_output_1, _ = self.temp_attn(
+            query=src_norm,
+            key=src_norm,
+            value=src_norm,
+            attn_mask=src_mask,
+            key_padding_mask=src_key_padding_mask
+        )
+        # src = self.dropout(attn_output) + src  # Residual connection
+        # src_norm = self.norm1(src)  # Layer normalization
+        
+        attn_output_2, _ = self.spat_attn(
+            q=src_norm,
+            k=src_norm,
+            v=src_norm,
+            mask=src_mask,
+            key_padding_mask=src_key_padding_mask
+        )
+        src = self.dropout(attn_output_1) * self.dropout(attn_output_2) + src
+        src_norm = self.norm2(src)  # Layer normalization
+
+        # Feedforward network with residual connection and normalization
+        ffn_output = self.ffn(src_norm)
+        src = src + ffn_output  # Residual connection
+
+        return src
+
+# Transformer Encoder
+class CustomTransformerEncoder(nn.Module):
+    def __init__(self, d_model, num_heads, num_layers, dim_feedforward, dropout, activation):
+        super(CustomTransformerEncoder, self).__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.dim_feedforward = dim_feedforward
+        self.dropout = dropout
+        self.activation = activation
+        self.num_layers = num_layers
+
+
+    # def __init__(self, d_model, num_heads, dim_feedforward, dropout, activation='relu'):
+    #     super(CustomTransformerEncoderLayer, self).__init__()
+
+        # Define the layers directly
+        self.encoder_layers = nn.ModuleList([
+            CustomTransformerEncoderLayer(
+                d_model=self.d_model,
+                num_heads=self.num_heads,
+                dim_feedforward=self.dim_feedforward,
+                dropout=self.dropout,
+                activation=self.activation
+            )
+            for _ in range(self.num_layers)
+        ])
+
+    def forward(self, src, src_mask=None, src_key_padding_mask=None):
+        """
+        Forward pass through the custom Transformer Encoder.
+
+        Args:
+            src (Tensor): Input tensor of shape (sequence_length, batch_size, d_model).
+            src_mask (Tensor, optional): Mask for the source sequence (optional).
+            src_key_padding_mask (Tensor, optional): Mask for padding in the batch (optional).
+
+        Returns:
+            Tensor: Output tensor of shape (sequence_length, batch_size, d_model).
+        """
+        output = src.permute(1,0,2)
+        for layer in self.encoder_layers:
+            output = layer(
+                src=output,
+                src_mask=src_mask,
+                src_key_padding_mask=src_key_padding_mask
+            )
+        return output.permute(1,0,2)
 
 
 
@@ -71,6 +485,30 @@ class MDM(nn.Module):
                                                               activation=activation)
             self.seqTransDecoder = nn.TransformerDecoder(seqTransDecoderLayer,
                                                          num_layers=self.num_layers)
+
+        elif self.arch == "me":
+            print("********* ME MODEL *********")
+            self.me_block = CustomTransformerEncoder(d_model=self.latent_dim, \
+                                                num_heads=self.num_heads, \
+                                                num_layers=self.num_layers, \
+                                                dropout=self.dropout, \
+                                                dim_feedforward=self.ff_size, \
+                                                activation=activation)
+
+        elif self.arch == 'mamba':
+
+            from mamba_ssm import Mamba
+
+            print("MAMBA init")
+            self.seqMamba = Mamba(
+            # This module uses roughly 3 * expand * d_model^2 parameters
+            d_model=self.latent_dim, # Model dimension d_model
+            d_state=64,  # SSM state expansion factor
+            d_conv=64,    # Local convolution width
+            expand=16,    # Block expansion factor
+        ).to("cuda")
+        
+
         elif self.arch == 'gru':
             print("GRU init")
             self.gru = nn.GRU(self.latent_dim, self.latent_dim, num_layers=self.num_layers, batch_first=True)
@@ -177,6 +615,28 @@ class MDM(nn.Module):
             xseq = torch.cat((emb, x), axis=0)  # [seqlen+1, bs, d]
             xseq = self.sequence_pos_encoder(xseq)  # [seqlen+1, bs, d]
             output = self.seqTransEncoder(xseq)[1:]  # , src_key_padding_mask=~maskseq)  # [seqlen, bs, d]
+        
+
+        if self.arch == 'me':
+            # adding the timestep embed
+            xseq = torch.cat((emb, x), axis=0)  # [seqlen+1, bs, d]
+            xseq = self.sequence_pos_encoder(xseq)#.permute(1,0,2)  # [seqlen+1, bs, d]
+            output = self.me_block(xseq)[1:]#.permute(1,0,2)[1:]  # , src_key_padding_mask=~maskseq)  # [seqlen, bs, d]
+        
+
+
+        elif self.arch == 'mamba':
+            # adding the timestep embed
+            xseq = torch.cat((emb, x), axis=0)  # [seqlen+1, bs, d]
+            # print(xseq.shape)
+            xseq = self.sequence_pos_encoder(xseq)  # [seqlen+1, bs, d]
+            # print(xseq.shape)
+            xseq = xseq.permute(1,0,2)
+            # print(xseq.shape) # torch.Size([4, 329, 512])
+            output = self.seqMamba(xseq)[:,1:,:]  # , src_key_padding_mask=~maskseq)  # [seqlen, bs, d]
+            # print(output.shape) torch.Size([4, 328, 512])
+            output = output.permute(1,0,2)
+            # print(output.shape)  torch.Size([328, 4, 512])
 
         elif self.arch == 'trans_dec':
             if self.emb_trans_dec:

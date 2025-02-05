@@ -1,3 +1,4 @@
+# %%writefile /kaggle/working/motion-diffusion-model/train/training_loop.py
 import copy
 import functools
 import os
@@ -28,6 +29,17 @@ INITIAL_LOG_LOSS_SCALE = 20.0
 
 class TrainLoop:
     def __init__(self, args, train_platform, model, diffusion, data):
+
+        self.history = {"train_loss":{}, "val_loss":{}}
+        self.train_batch_loss = []
+        self.val_batch_loss = []
+        self.val_data = get_dataset_loader(name=args.dataset, batch_size=args.batch_size, num_frames=args.num_frames, split='val')
+        self.resume_epoch = 0
+        self.saved_ckpt = []
+        self.save_dir = args.save_dir
+
+        self.root_save_path = os.path.join(os.getcwd(),self.save_dir)
+        
         self.args = args
         self.dataset = args.dataset
         self.train_platform = train_platform
@@ -51,6 +63,7 @@ class TrainLoop:
         self.global_batch = self.batch_size # * dist.get_world_size()
         self.num_steps = args.num_steps
         self.num_epochs = self.num_steps // len(self.data) + 1
+        self.best_val = 9999999
 
         self.sync_cuda = torch.cuda.is_available()
 
@@ -61,7 +74,6 @@ class TrainLoop:
             fp16_scale_growth=self.fp16_scale_growth,
         )
 
-        self.save_dir = args.save_dir
         self.overwrite = args.overwrite
 
         self.opt = AdamW(
@@ -89,6 +101,7 @@ class TrainLoop:
             self.eval_gt_data = get_dataset_loader(name=args.dataset, batch_size=args.eval_batch_size, num_frames=None,
                                                    split=args.eval_split,
                                                    hml_mode='gt')
+            
             self.eval_wrapper = EvaluatorMDMWrapper(args.dataset, dist_util.dev())
             self.eval_data = {
                 'test': lambda: eval_humanml.get_mdm_loader(
@@ -97,6 +110,7 @@ class TrainLoop:
                     args.eval_num_samples, scale=1.,
                 )
             }
+            
         self.use_ddp = False
         self.ddp_model = self.model
 
@@ -109,8 +123,19 @@ class TrainLoop:
             self.model.load_state_dict(
                 dist_util.load_state_dict(
                     resume_checkpoint, map_location=dist_util.dev()
-                )
+                ), strict=False
             )
+
+
+            model_state_dict = torch.load(resume_checkpoint, map_location='cpu')
+            self.history = model_state_dict["history"]
+            self.resume_epoch = max(self.history["train_loss"].keys())
+            self.best_val = min(self.history["val_loss"].values())
+            logger.log(f"Resume from epoch : {self.resume_epoch}")
+            self.resume_epoch += 1
+
+            # self.train_batch_loss = [
+            # self.val_batch_loss = []
 
     def _load_optimizer_state(self):
         main_checkpoint = find_resume_checkpoint() or self.resume_checkpoint
@@ -125,8 +150,9 @@ class TrainLoop:
             self.opt.load_state_dict(state_dict)
 
     def run_loop(self):
-
         for epoch in range(self.num_epochs):
+            epoch = self.resume_epoch + epoch
+            self.model.train()
             print(f'Starting epoch {epoch}')
             for motion, cond in tqdm(self.data):
                 if not (not self.lr_anneal_steps or self.step + self.resume_step < self.lr_anneal_steps):
@@ -158,6 +184,21 @@ class TrainLoop:
                 self.step += 1
             if not (not self.lr_anneal_steps or self.step + self.resume_step < self.lr_anneal_steps):
                 break
+
+            train_epoch_loss = np.array(self.train_batch_loss).mean()
+            self.history["train_loss"][epoch] = train_epoch_loss
+            self.train_batch_loss.clear()
+    
+            if epoch % 100 == 0:
+
+                self.run_eval()
+                val_epoch_loss = np.array(self.val_batch_loss).mean()
+                self.history["val_loss"][epoch] = val_epoch_loss
+                if self.best_val > self.history["val_loss"][epoch]:
+                    self.best_val = self.history["val_loss"][epoch]
+                    self.save(name="best")
+                self.val_batch_loss.clear()
+            
         # Save the last checkpoint if it wasn't already saved.
         if (self.step - 1) % self.save_interval != 0:
             self.save()
@@ -203,13 +244,24 @@ class TrainLoop:
         print(f'Evaluation time: {round(end_eval-start_eval)/60}min')
 
 
-    def run_step(self, batch, cond):
-        self.forward_backward(batch, cond)
-        self.mp_trainer.optimize(self.opt)
-        self._anneal_lr()
-        self.log_step()
+    def run_eval(self):
+        print(f'Starting EVALUATE ...')
+        self.val_batch_loss.clear()
+        self.model.eval()
+        for motion, cond in tqdm(self.val_data):
+            self.mp_trainer.zero_grad()
+            motion = motion.to(self.device)
+            cond['y'] = {key: val.to(self.device) if torch.is_tensor(val) else val for key, val in cond['y'].items()}
+            self.run_step(motion, cond, mode="val")
+    
+    def run_step(self, batch, cond, mode="train"):
+        self.forward_backward(batch, cond, mode)
+        if mode == "train":
+            self.mp_trainer.optimize(self.opt)
+            self._anneal_lr()
+            self.log_step()
 
-    def forward_backward(self, batch, cond):
+    def forward_backward(self, batch, cond, mode):
         self.mp_trainer.zero_grad()
         for i in range(0, batch.shape[0], self.microbatch):
             # Eliminates the microbatch feature
@@ -235,16 +287,23 @@ class TrainLoop:
                 with self.ddp_model.no_sync():
                     losses = compute_losses()
 
-            if isinstance(self.schedule_sampler, LossAwareSampler):
-                self.schedule_sampler.update_with_local_losses(
-                    t, losses["loss"].detach()
+            if mode=="train":
+                if isinstance(self.schedule_sampler, LossAwareSampler):
+                    self.schedule_sampler.update_with_local_losses(
+                        t, losses["loss"].detach()
+                    )
+    
+                loss = (losses["loss"] * weights).mean()
+                log_loss_dict(
+                    self.diffusion, t, {k: v * weights for k, v in losses.items()}
                 )
+                self.mp_trainer.backward(loss)
+                self.train_batch_loss.append(loss.item())
 
-            loss = (losses["loss"] * weights).mean()
-            log_loss_dict(
-                self.diffusion, t, {k: v * weights for k, v in losses.items()}
-            )
-            self.mp_trainer.backward(loss)
+            else:
+                loss = (losses["loss"] * weights).mean()
+                self.val_batch_loss.append(loss.item())
+
 
     def _anneal_lr(self):
         if not self.lr_anneal_steps:
@@ -258,12 +317,24 @@ class TrainLoop:
         logger.logkv("step", self.step + self.resume_step)
         logger.logkv("samples", (self.step + self.resume_step + 1) * self.global_batch)
 
+    def ckpt_file_name(self, name):
+        if name == "best":
+            for old_ckpt in self.saved_ckpt:
+                if old_ckpt.startswith("best"):
+                    self.saved_ckpt.remove(old_ckpt)
+                    os.remove(f"{self.root_save_path}/{old_ckpt}")
+        # else:
+        #     for old_ckpt in self.saved_ckpt:
+        #         if not old_ckpt.startswith("best"):
+        #             self.saved_ckpt.remove(old_ckpt)
+        #             os.remove(f"{self.root_save_path}/{old_ckpt}")
+        #             opt_ckpt = old_ckpt.replace("model", "opt")
+        #             os.remove(f"{self.root_save_path}/{opt_ckpt}")
+        ckpt_name = f"{name}model{(self.step+self.resume_step):09d}.pt"
+        self.saved_ckpt.append(ckpt_name)
+        return ckpt_name
 
-    def ckpt_file_name(self):
-        return f"model{(self.step+self.resume_step):09d}.pt"
-
-
-    def save(self):
+    def save(self, name=""):
         def save_checkpoint(params):
             state_dict = self.mp_trainer.master_params_to_state_dict(params)
 
@@ -273,17 +344,20 @@ class TrainLoop:
                 del state_dict[e]
 
             logger.log(f"saving model...")
-            filename = self.ckpt_file_name()
+            filename = self.ckpt_file_name(name=name)
+
+            state_dict["history"] = self.history
+            
             with bf.BlobFile(bf.join(self.save_dir, filename), "wb") as f:
                 torch.save(state_dict, f)
 
         save_checkpoint(self.mp_trainer.master_params)
-
-        with bf.BlobFile(
-            bf.join(self.save_dir, f"opt{(self.step+self.resume_step):09d}.pt"),
-            "wb",
-        ) as f:
-            torch.save(self.opt.state_dict(), f)
+        if name == "":
+            with bf.BlobFile(
+                bf.join(self.save_dir, f"opt{(self.step+self.resume_step):09d}.pt"),
+                "wb",
+            ) as f:
+                torch.save(self.opt.state_dict(), f)
 
 
 def parse_resume_step_from_filename(filename):

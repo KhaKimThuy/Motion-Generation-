@@ -8,11 +8,6 @@ from utils.parser_util import get_cond_mode
 
 def load_model_wo_clip(model, state_dict):
     missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-    # print(missing_keys)
-    # print(unexpected_keys) []
-    # print(f"check_var : {all([k.startswith('clip_model.') for k in missing_keys])}") True
-    assert len(unexpected_keys) == 0
-    assert all([k.startswith('clip_model.') for k in missing_keys])
 
 
 def create_model_and_diffusion(args, data, num_joints=None):
@@ -22,28 +17,29 @@ def create_model_and_diffusion(args, data, num_joints=None):
         model = create_motion_unet(
             motion_args,
             args.image_size,
-            args.num_channels,
-            args.num_res_blocks,
-            channel_mult=args.channel_mult,
+            num_channels=256,
+            num_res_blocks=8,
+            channel_mult="1",
             learn_sigma=args.learn_sigma,
             class_cond=args.class_cond,
             use_checkpoint=args.use_checkpoint,
             attention_resolutions=args.attention_resolutions,
-            num_heads=args.num_heads,
+            num_heads=8,
             num_head_channels=args.num_head_channels,
             num_heads_upsample=args.num_heads_upsample,
-            use_scale_shift_norm=args.use_scale_shift_norm,
-            dropout=args.dropout,
+            use_scale_shift_norm=True,
+            dropout=0.0,
             resblock_updown=args.resblock_updown,
             use_fp16=args.use_fp16,
             use_new_attention_order=args.use_new_attention_order,
             conv_1d=args.conv_1d,
             padding_mode=args.padding_mode,
             padding=args.padding,
-            use_attention=args.use_attention,
-            use_qna=args.use_qna,
-            kernel_size=args.kernel_size,
+            use_attention=True,
+            use_qna=True,
+            kernel_size=3,
         )
+
     else:
         model = MDM(**get_model_args(args, data))
     diffusion = create_gaussian_diffusion(args)
@@ -94,10 +90,10 @@ def get_unet_model_args(args, data, num_joints):
 
     return {'modeltype': '', 'njoints': njoints, 'nfeats': nfeats, 'num_actions': num_actions,
             'translation': True, 'pose_rep': 'rot6d', 'glob': True, 'glob_rot': True,
-            'latent_dim': args.latent_dim, 'ff_size': 1024, 'num_layers': args.layers, 'num_heads': 4,
-            'dropout': 0.1, 'activation': "gelu", 'data_rep': data_rep, 'cond_mode': cond_mode,
-            'cond_mask_prob': args.cond_mask_prob, 'action_emb': action_emb, 'arch': args.arch,
-            'emb_trans_dec': args.emb_trans_dec, 'clip_version': clip_version, 'dataset': args.dataset}
+            'latent_dim': 512, 'ff_size': 1024, 'num_layers': 8, 'num_heads': 4,
+            'dropout': 0.0, 'activation': "gelu", 'data_rep': data_rep, 'cond_mode': cond_mode,
+            'cond_mask_prob': 0.1, 'action_emb': action_emb, 'arch': "trans_enc",
+            'emb_trans_dec': False, 'clip_version': clip_version, 'dataset': args.dataset}
 
 def get_model_args(args, data):
 
@@ -126,10 +122,10 @@ def get_model_args(args, data):
 
     return {'modeltype': '', 'njoints': njoints, 'nfeats': nfeats, 'num_actions': num_actions,
             'translation': True, 'pose_rep': 'rot6d', 'glob': True, 'glob_rot': True,
-            'latent_dim': args.latent_dim, 'ff_size': 1024, 'num_layers': args.layers, 'num_heads': 4,
-            'dropout': 0.1, 'activation': "gelu", 'data_rep': data_rep, 'cond_mode': cond_mode,
-            'cond_mask_prob': args.cond_mask_prob, 'action_emb': action_emb, 'arch': args.arch,
-            'emb_trans_dec': args.emb_trans_dec, 'clip_version': clip_version, 'dataset': args.dataset}
+            'latent_dim': 512, 'ff_size': 1024, 'num_layers': 8, 'num_heads': 4,
+            'dropout': 0.0, 'activation': "gelu", 'data_rep': "hml_vec", 'cond_mode': "text",
+            'cond_mask_prob': 0.1, 'action_emb': None, 'arch': args.arch,
+            'emb_trans_dec': False, 'clip_version': clip_version, 'dataset': args.dataset}
 
 
 def create_gaussian_diffusion(args):
@@ -227,6 +223,8 @@ def create_motion_unet(
         motion_args['nfeats'] = 1
         
     ch = motion_args['njoints'] * motion_args['nfeats']
+
+
     
     return MDM_UNetModel(
         motion_args=motion_args,
