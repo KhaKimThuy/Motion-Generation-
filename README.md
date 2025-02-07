@@ -33,19 +33,19 @@
 <table class="center">
     <tr>
     <td>MDM</td>
-    <td><img src="assets/mdm1.gif"></td>
-    <td><img src="assets/mdm2.gif"></td>
-    <td><img src="assets/mdm3.gif"></td>
-    <td><img src="assets/mdm4.gif"></td>
-    <td><img src="assets/mdm5.gif"></td>
+    <td><img src="assets/mdm_1.gif"></td>
+    <td><img src="assets/mdm_2.gif"></td>
+    <td><img src="assets/mdm_3.gif"></td>
+    <td><img src="assets/mdm_4.gif"></td>
+    <td><img src="assets/mdm_5.gif"></td>
     </tr>
     <tr>
     <td>Ours</td>
-    <td><img src="assets/ours1.gif"></td>
-    <td><img src="assets/ours2.gif"></td>
-    <td><img src="assets/ours3.gif"></td>
-    <td><img src="assets/ours4.gif"></td>
-    <td><img src="assets/ours5.gif"></td>
+    <td><img src="assets/ours_1.gif"></td>
+    <td><img src="assets/ours_2.gif"></td>
+    <td><img src="assets/ours_3.gif"></td>
+    <td><img src="assets/ours_4.gif"></td>
+    <td><img src="assets/ours_5.gif"></td>
     </tr>
 </table>
 <b>HUMANML3D</b>
