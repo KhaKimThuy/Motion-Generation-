@@ -29,6 +29,7 @@
 
 
 ### Qualitative evaluation
+
 <b>KIT</b>
 <table class="center">
     <tr>
@@ -48,6 +49,7 @@
     <td><img src="assets/ours_5.gif"></td>
     </tr>
 </table>
+
 <b>HUMANML3D</b>
 <table class="center">
     <tr>
