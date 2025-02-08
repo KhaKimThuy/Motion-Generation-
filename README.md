@@ -5,9 +5,9 @@
 ### Quantitative evaluation
 <div align="center">
 
-<p align="center"><i>Table 1: Quantitative results on the <u>KIT</u> test set</i></p>
+<p align="center"><i>Table 1: Quantitative results on the <u>KIT</u> test set</i> (diffusion steps = 50)</p>
 
-| **Model**    |                  **R Precision ⬆️**                          ||        |          **Diversity ⬆️** |          **FID ⬇️**       |          **Download**       |
+| **Model**    |                  **R Precision ⬆️**                          ||        |          **Diversity ➡️** |          **FID ⬇️**       |          **Download**       |
 | ------------ | :-----------:        | :-----------:        | :-----------:         | :-----------:          | :-----------:          | :-----------:          |
 |              |      Top 1           |     Top 2            |      Top 3            |                        |                        |                        |
 |MDM           | $$0.3420^{\pm0066}$$ | $$0.5506^{\pm0055}$$ | $$0.6806^{\pm0038}$$  |  $$10.8756^{\pm0950}$$  |  $$1.5703^{\pm0658}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1PE0PK8e5a5j-7-Xhs5YET5U5pGh0c821/view)  |
@@ -16,15 +16,14 @@
 
 <div align="center">
 
-<p align="center"><i>Table 2: Quantitative results on the <u>HumanML3D</u> test set</i></p>
+<p align="center"><i>Table 2: Quantitative results on the <u>HumanML3D</u> test set</i> (diffusion steps = 1000)</p>
 
-| **Model**    |                  **R Precision ⬆️**                          ||        |          **Diversity ⬆️** |          **FID ⬇️**       |          **Download**       |
+| **Model**    |                  **R Precision ⬆️**                          ||        |          **Diversity ➡️** |          **FID ⬇️**       |          **Download**       |
 | ------------ | :-----------:        | :-----------:        | :-----------:         | :-----------:          | :-----------:          | :-----------:          |
 |              |      Top 1           |     Top 2            |      Top 3            |                        |                        |                        |
-|MDM           | $$0.3420^{\pm0066}$$ | $$0.5506^{\pm0055}$$ | $$0.6806^{\pm0038}$$  |  $$10.8756^{\pm0950}$$  |  $$1.5703^{\pm0658}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1PE0PK8e5a5j-7-Xhs5YET5U5pGh0c821/view)  |
-|*Ours          | $$\textcolor{yellow}{0.3465^{\pm0059}}$$ | $$\textcolor{yellow}{0.5568^{\pm0072}}$$ | $$\textcolor{yellow}{0.6910^{\pm0067}}$$  |  $$\textcolor{yellow}{11.3812^{\pm1153}}$$  |  $$\textcolor{yellow}{0.9819^{\pm0406}}$$  |  [🚀 Checkpoint](https://drive.google.com/drive/folders/1d1kc85btNoudJd0fuF-aWp-7kyqJEOxi?usp=sharing)  |
+|MDM           | $$0.4141^{\pm.0091}$$ | $$0.6112^{\pm.0121}$$ | $$0.7248^{\pm.0076}$$  |  $$\textcolor{yellow}{9.7792^{\pm.1780}}$$  |  $$0.5970^{\pm.0984}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1PE0PK8e5a5j-7-Xhs5YET5U5pGh0c821/view)  |
+|*Ours          | $$\textcolor{yellow}{0.4304^{\pm.0128}}$$ | $$\textcolor{yellow}{0.6221^{\pm.0192}}$$ | $$\textcolor{yellow}{0.7326^{\pm.0127}}$$  |  $$9.6587^{\pm.2501}$$  |  $$\textcolor{yellow}{0.4563^{\pm.0511}}$$  |  [🚀 Checkpoint](https://drive.google.com/drive/folders/1njRNnuMFgZxVRr2PQykZ4Kin_x21ZqIv?usp=sharing)  |
 </div>
-
 
 
 
