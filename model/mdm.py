@@ -14,10 +14,7 @@ from diffusion.nn import (
 
 
 class SpatialMultiHeadAttention(nn.Module):
-    def __init__(self, d_model, num_heads, dropout=0.1):
-        """
-        :param size: KÃ­ch thÆ°á»›c (dimension) cá»§a cÃ¡c vector truy váº¥n (query), key vÃ  value
-        """
+    def __init__(self, d_model, num_heads, dataset, dropout=0.1):
         super().__init__()
 
         assert d_model % num_heads == 0
@@ -31,18 +28,9 @@ class SpatialMultiHeadAttention(nn.Module):
         self.q_layer = nn.Linear(d_model, num_heads * head_size)
         self.k_layer = nn.Linear(d_model, num_heads * head_size)
         self.v_layer = nn.Linear(d_model, num_heads * head_size)
+        
+        self.norm = nn.LayerNorm(d_model) if dataset == "kit" else nn.Identity()
 
-        self.norm = nn.LayerNorm(d_model)
-
-        # self.kv_layer = AttentionBlock(
-        #                         d_model,
-        #                         use_checkpoint=False,
-        #                         num_heads=num_heads,
-        #                         num_head_channels=-1,
-        #                         use_new_attention_order=False,
-        #                         use_qna=True,
-        #                         kernel_size=3,
-        #                     )
         self.kv_layer = nn.Conv1d(d_model, num_heads * head_size, kernel_size=3, stride=1)
 
         self.softmax = nn.Softmax(dim=-1)
@@ -51,13 +39,15 @@ class SpatialMultiHeadAttention(nn.Module):
         self.output_layer =  nn.Linear(d_model, d_model)
 
 
+
     def forward(self, q, k, v, mask=None, key_padding_mask=None):
 
         batch_size, t, d = q.shape
         num_heads = self.num_heads
 
         q = self.q_layer(q)
-        kv = self.norm(self.kv_layer(k.permute(0,2,1)).permute(0,2,1))
+        kv = self.norm(self.kv_layer(k.permute(0,2,1)).permute(0,2,1)) # KIT
+        # kv = self.kv_layer(k.permute(0,2,1)).permute(0,2,1) # HumanML
         # k, v = torch.chunk(kv, 2, dim=-1)
         k = self.k_layer(kv)
         v = self.v_layer(kv)
@@ -92,7 +82,7 @@ class SpatialMultiHeadAttention(nn.Module):
 
 # Transformer Encoder Layer
 class CustomTransformerEncoderLayer(nn.Module):
-    def __init__(self, d_model, num_heads, dim_feedforward, dropout, activation='relu'):
+    def __init__(self, d_model, num_heads, dim_feedforward, dropout, dataset, activation='relu'):
         super(CustomTransformerEncoderLayer, self).__init__()
         self.d_model = d_model
         self.num_heads = num_heads
@@ -104,7 +94,7 @@ class CustomTransformerEncoderLayer(nn.Module):
         self.temp_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout, batch_first=True)
         # self.self_attn = EfTemporalAttention(d_model=d_model, num_heads=num_heads, dropout=dropout)
         # self.temp_attn = TemporalMultiHeadAttention(d_model=d_model, num_heads=num_heads, dropout=dropout)
-        self.spat_attn = SpatialMultiHeadAttention(d_model=d_model, num_heads=num_heads, dropout=dropout)
+        self.spat_attn = SpatialMultiHeadAttention(d_model=d_model, num_heads=num_heads, dropout=dropout, dataset=dataset)
 
         # Feedforward Network
         self.ffn = nn.Sequential(
@@ -165,7 +155,7 @@ class CustomTransformerEncoderLayer(nn.Module):
 
 # Transformer Encoder
 class CustomTransformerEncoder(nn.Module):
-    def __init__(self, d_model, num_heads, num_layers, dim_feedforward, dropout, activation):
+    def __init__(self, d_model, num_heads, num_layers, dim_feedforward, dropout, activation, dataset):
         super(CustomTransformerEncoder, self).__init__()
         self.d_model = d_model
         self.num_heads = num_heads
@@ -185,7 +175,8 @@ class CustomTransformerEncoder(nn.Module):
                 num_heads=self.num_heads,
                 dim_feedforward=self.dim_feedforward,
                 dropout=self.dropout,
-                activation=self.activation
+                activation=self.activation,
+                dataset=dataset
             )
             for _ in range(self.num_layers)
         ])
@@ -218,6 +209,7 @@ class MDM(nn.Module):
                  ablation=None, activation="gelu", legacy=False, data_rep='rot6d', dataset='amass', clip_dim=512,
                  arch='trans_enc', emb_trans_dec=False, clip_version=None, **kargs):
         super().__init__()
+
 
         self.legacy = legacy
         self.modeltype = modeltype
@@ -275,7 +267,8 @@ class MDM(nn.Module):
                                                 num_layers=self.num_layers, \
                                                 dropout=self.dropout, \
                                                 dim_feedforward=self.ff_size, \
-                                                activation=activation)
+                                                activation=activation,
+                                                dataset=dataset)
 
 
 
