@@ -1,5 +1,6 @@
-# Motion Diffusion Model
-
+# Improve Motion Diffusion Model
+## Quick Start
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/13k2W21wlAKvPmMw6yp2ZCzuwtMmdu1ca?usp=sharing)
 
 ## Quick comparison to the base method MDM
 ### Quantitative evaluation
@@ -10,8 +11,8 @@
 | **Model**    |                  **R Precision ⬆️**                          ||        |          **Diversity ➡️** |          **FID ⬇️**       |          **Download**       |
 | ------------ | :-----------:        | :-----------:        | :-----------:         | :-----------:          | :-----------:          | :-----------:          |
 |              |      Top 1           |     Top 2            |      Top 3            |                        |                        |                        |
-|MDM           | $$0.3420^{\pm0066}$$ | $$0.5506^{\pm0055}$$ | $$0.6806^{\pm0038}$$  |  $$10.8756^{\pm0950}$$  |  $$1.5703^{\pm0658}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1PE0PK8e5a5j-7-Xhs5YET5U5pGh0c821/view)  |
-|*Ours          | $$\textcolor{yellow}{0.3465^{\pm0059}}$$ | $$\textcolor{yellow}{0.5568^{\pm0072}}$$ | $$\textcolor{yellow}{0.6910^{\pm0067}}$$  |  $$\textcolor{yellow}{11.3812^{\pm1153}}$$  |  $$\textcolor{yellow}{0.9819^{\pm0406}}$$  |  [🚀 Checkpoint](https://drive.google.com/drive/folders/1d1kc85btNoudJd0fuF-aWp-7kyqJEOxi?usp=sharing)  |
+|MDM           | $$0.3420^{\pm0066}$$ | $$0.5506^{\pm0055}$$ | $$0.6806^{\pm0038}$$  |  $$10.8756^{\pm0950}$$  |  $$1.5703^{\pm0658}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1SHCRcE0es31vkJMLGf9dyLe7YsWj7pNL/view)  |
+|*Ours          | $$\textcolor{yellow}{0.3465^{\pm0059}}$$ | $$\textcolor{yellow}{0.5568^{\pm0072}}$$ | $$\textcolor{yellow}{0.6910^{\pm0067}}$$  |  $$\textcolor{yellow}{11.3812^{\pm1153}}$$  |  $$\textcolor{yellow}{0.9819^{\pm0406}}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1c-jXFakje0wtHpzWFUQerOKPCqHheBuU/view?usp=sharing)  |
 </div>
 
 <div align="center">
@@ -22,7 +23,7 @@
 | ------------ | :-----------:        | :-----------:        | :-----------:         | :-----------:          | :-----------:          | :-----------:          |
 |              |      Top 1           |     Top 2            |      Top 3            |                        |                        |                        |
 |MDM           | $$0.4141^{\pm.0091}$$ | $$0.6112^{\pm.0121}$$ | $$0.7248^{\pm.0076}$$  |  $$\textcolor{yellow}{9.7792^{\pm.1780}}$$  |  $$0.5970^{\pm.0984}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1PE0PK8e5a5j-7-Xhs5YET5U5pGh0c821/view)  |
-|*Ours          | $$\textcolor{yellow}{0.4304^{\pm.0128}}$$ | $$\textcolor{yellow}{0.6221^{\pm.0192}}$$ | $$\textcolor{yellow}{0.7326^{\pm.0127}}$$  |  $$9.6587^{\pm.2501}$$  |  $$\textcolor{yellow}{0.4563^{\pm.0511}}$$  |  [🚀 Checkpoint](https://drive.google.com/drive/folders/1njRNnuMFgZxVRr2PQykZ4Kin_x21ZqIv?usp=sharing)  |
+|*Ours          | $$\textcolor{yellow}{0.4304^{\pm.0128}}$$ | $$\textcolor{yellow}{0.6221^{\pm.0192}}$$ | $$\textcolor{yellow}{0.7326^{\pm.0127}}$$  |  $$9.6587^{\pm.2501}$$  |  $$\textcolor{yellow}{0.4563^{\pm.0511}}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1rw-lbY6uVEkszaTXTg4KXRUJEMVplAkE/view?usp=sharing)  |
 </div>
 
 
@@ -77,10 +78,9 @@
     </tr>
 </table>
 
-## Quick Start
-A quick start guide of how to use our code is available in [demo.ipynb](https://colab.research.google.com/drive/13k2W21wlAKvPmMw6yp2ZCzuwtMmdu1ca?usp=sharing)
 
-This code was b_mdm_1ed on `Ubuntu 18.04.5 LTS` and requires:
+
+This code was tested on `Ubuntu 18.04.5 LTS` and requires:
 
 * Python 3.7
 * conda3 or miniconda3
@@ -156,7 +156,7 @@ bash prepare/download_humanml3d_dataset.sh
   <summary><b>Train your own MDM</b></summary>
 
 ```shell
-python -m train.train_mdm --save_dir save/mdm_output --dataset kit
+python -m train.train_mdm --arch trans_enc --save_dir save/mdm_output --dataset kit
 ```
 </details>
 
@@ -164,7 +164,7 @@ python -m train.train_mdm --save_dir save/mdm_output --dataset kit
   <summary><b>Train your own LGTT</b></summary>
   
 ```shell
-python -m train.train_mdm --arch me --save_dir save/lgtt_output --dataset kit
+python -m train.train_mdm --arch lgtt --save_dir save/lgtt_output --dataset kit
 ```
 </details>
 
@@ -179,7 +179,7 @@ python -m train.train_mdm --arch unet --save_dir save/my_kit_unet_512 --dataset 
 
 ## Motion Synthesis
 ```shell
-python -m sample.generate --model_path ./save/humanml_trans_enc_512/model000200000.pt --num_samples 10 --num_repetitions 3
+python -m sample.generate --model_path ./save/kit_trans_enc_512/model000400000.pt --
 ```
 ## Evaluate
 
