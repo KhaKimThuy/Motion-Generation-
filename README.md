@@ -12,7 +12,7 @@
 | ------------ | :-----------:        | :-----------:        | :-----------:         | :-----------:          | :-----------:          | :-----------:          |
 |              |      Top 1           |     Top 2            |      Top 3            |                        |                        |                        |
 |MDM           | $$0.3420^{\pm0066}$$ | $$0.5506^{\pm0055}$$ | $$0.6806^{\pm0038}$$  |  $$10.8756^{\pm0950}$$  |  $$1.5703^{\pm0658}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1SHCRcE0es31vkJMLGf9dyLe7YsWj7pNL/view)  |
-|*Ours          | $$\textcolor{yellow}{0.3465^{\pm0059}}$$ | $$\textcolor{yellow}{0.5568^{\pm0072}}$$ | $$\textcolor{yellow}{0.6910^{\pm0067}}$$  |  $$\textcolor{yellow}{11.3812^{\pm1153}}$$  |  $$\textcolor{yellow}{0.9819^{\pm0406}}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1c-jXFakje0wtHpzWFUQerOKPCqHheBuU/view?usp=sharing)  |
+|*Ours          | $$\textcolor{orange}{0.3465^{\pm0059}}$$ | $$\textcolor{orange}{0.5568^{\pm0072}}$$ | $$\textcolor{orange}{0.6910^{\pm0067}}$$  |  $$\textcolor{orange}{11.3812^{\pm1153}}$$  |  $$\textcolor{orange}{0.9819^{\pm0406}}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1c-jXFakje0wtHpzWFUQerOKPCqHheBuU/view?usp=sharing)  |
 </div>
 
 <div align="center">
@@ -22,8 +22,8 @@
 | **Model**    |                  **R Precision ⬆️**                          ||        |          **Diversity ➡️** |          **FID ⬇️**       |          **Download**       |
 | ------------ | :-----------:        | :-----------:        | :-----------:         | :-----------:          | :-----------:          | :-----------:          |
 |              |      Top 1           |     Top 2            |      Top 3            |                        |                        |                        |
-|MDM           | $$0.4141^{\pm.0091}$$ | $$0.6112^{\pm.0121}$$ | $$0.7248^{\pm.0076}$$  |  $$\textcolor{yellow}{9.7792^{\pm.1780}}$$  |  $$0.5970^{\pm.0984}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1PE0PK8e5a5j-7-Xhs5YET5U5pGh0c821/view)  |
-|*Ours          | $$\textcolor{yellow}{0.4304^{\pm.0128}}$$ | $$\textcolor{yellow}{0.6221^{\pm.0192}}$$ | $$\textcolor{yellow}{0.7326^{\pm.0127}}$$  |  $$9.6587^{\pm.2501}$$  |  $$\textcolor{yellow}{0.4563^{\pm.0511}}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1rw-lbY6uVEkszaTXTg4KXRUJEMVplAkE/view?usp=sharing)  |
+|MDM           | $$0.4141^{\pm.0091}$$ | $$0.6112^{\pm.0121}$$ | $$0.7248^{\pm.0076}$$  |  $$\textcolor{orange}{9.7792^{\pm.1780}}$$  |  $$0.5970^{\pm.0984}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1PE0PK8e5a5j-7-Xhs5YET5U5pGh0c821/view)  |
+|*Ours          | $$\textcolor{orange}{0.4304^{\pm.0128}}$$ | $$\textcolor{orange}{0.6221^{\pm.0192}}$$ | $$\textcolor{orange}{0.7326^{\pm.0127}}$$  |  $$9.6587^{\pm.2501}$$  |  $$\textcolor{orange}{0.4563^{\pm.0511}}$$  |  [🚀 Checkpoint](https://drive.google.com/file/d/1rw-lbY6uVEkszaTXTg4KXRUJEMVplAkE/view?usp=sharing)  |
 </div>
 
 
